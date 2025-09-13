@@ -1,0 +1,69 @@
+package main
+
+import (
+ "context"
+ "fmt"
+ "math/rand"
+ "time"
+)
+
+type searchFn func(ctx context.Context, query string) (string, error)
+
+func source(name string, minDelay, maxDelayMs int, fails bool) searchFn {
+ return func(ctx context.Context, q string) (string, error) {
+  delay := time.Duration(rand.Intn(maxDelayMs-minDelay+1)+minDelay) * time.Millisecond
+  select {
+  case <-time.After(delay):
+   if fails && rand.Intn(2) == 0 {
+    return "", fmt.Errorf("%s: not found", name)
+   }
+   return fmt.Sprintf("[%s] result for %q (delay %v)", name, q, delay), nil
+  case <-ctx.Done():
+   return "", ctx.Err()
+  }
+ }
+}
+
+func firstResult(q string, sources []searchFn) (string, error) {
+ ctx, cancel := context.WithCancel(context.Background())
+ defer cancel()
+
+ type ans struct {
+  s   string
+  err error
+ }
+ out := make(chan ans, len(sources))
+
+ for _, s := range sources {
+  go func(sf searchFn) {
+   res, err := sf(ctx, q)
+   out <- ans{res, err}
+  }(s)
+ }
+
+ for i := 0; i < len(sources); i++ {
+  a := <-out
+  if a.err == nil {
+   cancel() 
+   return a.s, nil
+  }
+ }
+ return "", fmt.Errorf("no results")
+}
+
+func main() {
+
+ rand.Seed(time.Now().UnixNano())
+
+ sources := []searchFn{
+  source("db-A", 120, 300, false),
+  source("db-B", 50, 400, true),
+  source("api-C", 80, 500, false),
+ }
+ res, err := firstResult("golang channels", sources)
+ if err != nil {
+  fmt.Println("Ошибка:", err)
+  return
+ }
+ fmt.Println("Первый успешный результат:", res)
+}
