@@ -1,0 +1,26 @@
+package main
+
+import (
+ "fmt"
+ "math/rand"
+ "sync"
+ "time"
+)
+func main() {
+
+ tick := time.Tick(200 * time.Millisecond) 
+ total := 15
+ var wg sync.WaitGroup
+ wg.Add(total)
+
+ for i := 1; i <= total; i++ {
+  <-tick 
+  go func(id int) {
+   defer wg.Done()
+   time.Sleep(time.Duration(rand.Intn(150)+50) * time.Millisecond)
+   fmt.Printf("обработан запрос #%d\n", id)
+  }(i)
+ }
+ wg.Wait()
+ fmt.Println("Все 15 запросов обработаны с ограничением ~5/сек.")
+}
