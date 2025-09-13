@@ -1,0 +1,93 @@
+package main
+
+import (
+ "crypto/md5"
+ "encoding/hex"
+ "fmt"
+ "io"
+ "os"
+ "path/filepath"
+ "sync"
+ "time"
+)
+
+type job struct{ path string }
+type result struct {
+ path string
+ md5  string
+ err  error
+}
+
+func writeTempFiles() ([]string, func()) {
+ dir, _ := os.MkdirTemp("", "md5demo")
+ paths := []string{
+  filepath.Join(dir, "a.txt"),
+  filepath.Join(dir, "b.txt"),
+  filepath.Join(dir, "c.txt"),
+  filepath.Join(dir, "d.txt"),
+ }
+ contents := []string{
+  "Hello MD5",
+  "Go concurrency is simple & powerful",
+  "Parallel hashing demo",
+  "Some random text " + time.Now().Format(time.RFC3339Nano),
+ }
+ for i, p := range paths {
+  _ = os.WriteFile(p, []byte(contents[i]), 0644)
+ }
+ cleanup := func() { _ = os.RemoveAll(dir) }
+ return paths, cleanup
+}
+
+func main() {
+
+ files, cleanup := writeTempFiles()
+ defer cleanup()
+
+ const workers = 2 
+ jobs := make(chan job)
+ results := make(chan result)
+
+ var wg sync.WaitGroup
+ for w := 0; w < workers; w++ {
+  wg.Add(1)
+  go func(id int) {
+   defer wg.Done()
+   for j := range jobs {
+    f, err := os.Open(j.path)
+    if err != nil {
+     results <- result{path: j.path, err: err}
+     continue
+    }
+    h := md5.New()
+    _, err = io.Copy(h, f)
+    f.Close()
+    if err != nil {
+     results <- result{path: j.path, err: err}
+     continue
+    }
+    results <- result{path: j.path, md5: hex.EncodeToString(h.Sum(nil))}
+   }
+  }(w + 1)
+ }
+
+ go func() {
+  for _, p := range files {
+   jobs <- job{path: p}
+  }
+  close(jobs)
+ }()
+
+ go func() {
+  wg.Wait()
+  close(results)
+ }()
+
+ for r := range results {
+  if r.err != nil {
+   fmt.Printf("%s -> error: %v\n", r.path, r.err)
+  } else {
+   fmt.Printf("%s -> md5: %s\n", filepath.Base(r.path), r.md5)
+  }
+ }
+}
