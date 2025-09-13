@@ -1,0 +1,41 @@
+package main
+
+import (
+ "fmt"
+ "sync"
+)
+func main() {
+
+ const workers = 3
+ jobs := make(chan int)
+ results := make(chan int)
+ var wg sync.WaitGroup
+ for w := 1; w <= workers; w++ {
+  wg.Add(1)
+  go func(id int) {
+   defer wg.Done()
+   for n := range jobs {
+    res := n * n
+    fmt.Printf("worker %d: %d^2 = %d\n", id, n, res)
+    results <- res
+   }
+  }(w)
+ }
+
+ go func() {
+  for i := 1; i <= 10; i++ {
+   jobs <- i
+  }
+  close(jobs)
+ }()
+
+ go func() {
+  wg.Wait()
+  close(results)
+ }()
+ sum := 0
+ for r := range results {
+  sum += r
+ }
+ fmt.Println("Сумма всех результатов:", sum)
+}
