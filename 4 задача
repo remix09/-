@@ -1,0 +1,61 @@
+package main
+
+import (
+ "fmt"
+ "net/http"
+ "sync"
+ "time"
+)
+
+type job struct{ url string }
+type result struct {
+ url    string
+ status string
+ err    error
+}
+func main() {
+ urls := []string{
+  "https://example.com",
+  "https://httpbin.org/status/200",
+  "https://httpbin.org/status/404",
+  "https://httpbin.org/status/418",
+  "https://httpbin.org/status/500",
+ }
+ jobs := make(chan job)
+ results := make(chan result)
+ const workers = 3
+ client := &http.Client{Timeout: 3 * time.Second}
+ var wg sync.WaitGroup
+ for w := 0; w < workers; w++ {
+  wg.Add(1)
+  go func(id int) {
+   defer wg.Done()
+   for j := range jobs {
+    resp, err := client.Get(j.url)
+    if err != nil {
+     results <- result{url: j.url, err: err}
+     continue
+    }
+    resp.Body.Close()
+    results <- result{url: j.url, status: resp.Status}
+   }
+  }(w + 1)
+ }
+ go func() {
+  for _, u := range urls {
+   jobs <- job{url: u}
+  }
+  close(jobs)
+ }()
+ go func() {
+  wg.Wait()
+  close(results)
+ }()
+ for r := range results {
+  if r.err != nil {
+   fmt.Printf("%s -> error: %v\n", r.url, r.err)
+  } else {
+   fmt.Printf("%s -> %s\n", r.url, r.status)
+  }
+ }
+}
