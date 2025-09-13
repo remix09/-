@@ -1,0 +1,52 @@
+package main
+
+import "fmt"
+
+type (
+ cmdSet struct{ val int }
+ cmdGet struct{ reply chan int }
+ cmdInc struct{ delta int }
+)
+
+func main() {
+
+ setCh := make(chan cmdSet)
+ getCh := make(chan cmdGet)
+ incCh := make(chan cmdInc)
+ done := make(chan struct{})
+
+ go func() {
+  defer close(done)
+  state := 0
+  for {
+   select {
+   case s, ok := <-setCh:
+    if !ok {
+     return
+    }
+    state = s.val
+   case g := <-getCh:
+    g.reply <- state
+   case inc := <-incCh:
+    state += inc.delta
+   }
+  }
+ }()
+
+ setCh <- cmdSet{val: 10}
+ rep := make(chan int)
+ getCh <- cmdGet{reply: rep}
+ fmt.Println("state =", <-rep)
+
+ incCh <- cmdInc{delta: 5}
+ getCh <- cmdGet{reply: rep}
+ fmt.Println("state after +5 =", <-rep)
+
+ incCh <- cmdInc{delta: -3}
+ getCh <- cmdGet{reply: rep}
+ fmt.Println("state after -3 =", <-rep)
+
+ close(setCh)
+ <-done
+ fmt.Println("manager stopped")
+}
